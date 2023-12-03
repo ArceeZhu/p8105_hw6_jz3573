@@ -1,0 +1,110 @@
+---
+title: "p8105_hw6_jz3573"
+output: github_document
+date: "2023-12-02"
+---
+
+```{r setup}
+library(tidyverse)
+library(p8105.datasets)
+library(modelr)
+library (readr)
+library(viridis)
+library(ggplot2)
+set.seed(1)
+```
+
+# Problem 1 
+
+## import data
+```{r import data}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2022-01-01",
+    date_max = "2022-12-31") |>
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) |>
+  select(name, id, everything())
+```
+## generate 5000 bootstrap samples
+```{r build bootsample function}
+boot_sample = function(df) {
+  sample_frac(df, replace=TRUE)
+}
+```
+
+```{r draw 5000 samples}
+boot_straps = 
+  tibble(strap_number = 1:5000) %>% 
+  mutate(
+    strap_sample = map (strap_number, \(i) boot_sample(weather_df))
+  )
+set.seed(1)
+```
+
+## make a linear regression model 
+```{r make a linear regression model }
+boot_lr=
+  boot_straps %>% 
+  mutate(
+    models = map (.x= strap_sample, ~ lm (tmax ~ tmin + prcp, data= .x )),
+    glance = map (models, broom::glance),
+    results = map (models, broom :: tidy),
+    r_squared = map (glance, \ (df) pull (df, r.squared)),
+    log = map(results, \(df) log(abs(df$estimate[2] * df$estimate[3])))
+  )  %>% 
+  select(strap_number, r_squared, log) |>
+  mutate(
+    r_squared = as.numeric(r_squared),
+    log = as.numeric(log)
+  )
+    
+  
+```
+
+## plot the distribution of estimates of r-square 
+```{r distribution of r-square}
+boot_lr %>% 
+  ggplot (aes(x=r_squared)) +
+  geom_density() +
+  labs(title = "distribution of r-square")
+```
+The distribution of r_square is centered between 0.90 and 0.94, which means that the perception and tmin can predicts more than 90 % of tmax. In antoher word, the model is a good predicion model. 
+
+## plot the distribution of estimate of log(b1*b2)
+
+```{r plot the distribution of log(b1*b2)}
+boot_lr %>% 
+  ggplot (aes(x=log)) +
+  geom_density() +
+  labs (title = "distribution of log(b1*b2)" )
+  
+
+```
+The distribution of log (b1*b2) is left-skewed and is centered around -5 
+
+##  95% confidence interval for r_square 
+```{r 95 CI for r_square}
+boot_lr %>% 
+  summarize (
+    r_squared_2.5 = quantile (r_squared, 0.025),
+    r_squared_97.5 = quantile (r_squared, 0.9725)
+  ) %>% 
+  knitr::kable (digits = 3)
+```
+ The 95% confidence interval for r_square is (0.889, 0.940)
+ 
+##  95% confidence interval for log(b1*b2) 
+```{r 95 CI for log(b1*b2)}
+boot_lr %>% 
+  summarize (
+    log_2.5 = quantile(log,0.025),
+    log_97.5 = quantile(log, 0.975)
+  ) %>% 
+  knitr::kable (digits = 3)
+```
+ The 95% confidence interval for r_square is (-8.589, 4.592)
